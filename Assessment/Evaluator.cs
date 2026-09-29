@@ -1,39 +1,38 @@
-﻿namespace ExpressionEvaluator
+namespace ExpressionEvaluator;
+public static class Evaluator
 {
-    public static class Evaluator
+    private static readonly HttpClient SharedClient = new() { Timeout = TimeSpan.FromSeconds(15) };
+    public static Value Evaluate(Node expression) => EvaluateAsync(expression).GetAwaiter().GetResult();
+    public static async Task<Value> EvaluateAsync(Node expression, HttpClient? client = null,
+        CancellationToken cancellationToken = default)
     {
-        public static Value Evaluate(Node expression)
+        ArgumentNullException.ThrowIfNull(expression);
+        if (expression is Literal literal)
+            return literal.Value;
+        if (expression is not Function function)
+            throw new ArgumentException("Unknown expression node", nameof(expression));
+        var (minimum, maximum) = function.Name switch
         {
-            if (expression.GetType() == typeof(Literal))
-            {
-                var literal = (Literal)expression;
-                return literal.Value;
-            }
-            else
-            {
-                var function = expression as Function;
-                if (function!.Name == "add")
-                {
-                    var param1 = Evaluate(function.Parameters[0]);
-                    var param2 = Evaluate(function.Parameters[1]);
-                    return Functions.Add(param1, param2);
-                }
-                else if (function.Name == "equals")
-                {
-                    var param1 = Evaluate(function.Parameters[0]);
-                    var param2 = Evaluate(function.Parameters[1]);
-                    return Functions.Equals(param1, param2);
-                }
-                else if (function.Name == "not")
-                {
-                    var param1 = Evaluate(function.Parameters[0]);
-                    return Functions.Not(function.Parameters[0]);
-                }
-
-                throw new Exception("Unknown function");
-            }
-        }
-
-
+            "add" => (2, int.MaxValue),
+            "equals" or "contains" => (2, 2),
+            "not" or "fetchGet" => (1, 1),
+            _ => throw new ArgumentException($"Unknown function: {function.Name}", nameof(expression))
+        };
+        if (function.Parameters.Count < minimum || function.Parameters.Count > maximum)
+            throw new ArgumentException($"{function.Name} expects {minimum}" +
+                (maximum == int.MaxValue ? " or more" : "") + " parameter(s)", nameof(expression));
+        var values = new List<Value>(function.Parameters.Count);
+        foreach (var parameter in function.Parameters)
+            values.Add(await EvaluateAsync(parameter, client, cancellationToken).ConfigureAwait(false));
+        return function.Name switch
+        {
+            "add" => Functions.Add(values),
+            "equals" => Functions.Equals(values[0], values[1]),
+            "not" => Functions.Not(values[0]),
+            "contains" => Functions.Contains(values[0], values[1]),
+            "fetchGet" => new Value(await (client ?? SharedClient)
+                .GetStringAsync(Functions.Url(values[0]), cancellationToken).ConfigureAwait(false)),
+            _ => throw new InvalidOperationException("Unreachable function")
+        };
     }
 }

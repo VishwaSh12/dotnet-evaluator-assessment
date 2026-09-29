@@ -191,3 +191,23 @@ You can create a new bundle with `git bundle create assignment.bundle --all` com
 assignment. (Don't forget to commit your work) and send it back.
 
 Good luck!
+
+## Evaluating the new functions
+
+`Evaluator.Evaluate` keeps the synchronous entry point. `Evaluator.EvaluateAsync` accepts an optional
+`HttpClient` and cancellation token for network expressions. For example:
+
+```csharp
+var ast = new Function("contains", [
+    new Function("fetchGet", [new Literal(new Value("https://google.com"))]),
+    new Literal(new Value("Bing"))
+]);
+bool result = (await Evaluator.EvaluateAsync(ast)).Get<bool>();
+```
+
+`contains` performs ordinal, case-sensitive matching. `fetchGet` accepts absolute HTTP(S) URLs,
+uses GET, propagates HTTP failures, and has a 15-second timeout with the shared default client.
+Only evaluate trusted ASTs: callers that accept user-provided URLs must apply their own host/network
+allowlist to prevent access to internal services. Tests inject an HTTP client and do not access the internet.
+
+Run tests with `dotnet test Assignment.sln`.
